@@ -1,8 +1,12 @@
-use telnet::{Telnet, Event};
+use bytebuffer::ByteBuffer;
+pub(crate)
+
+use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
 use std::thread;
+use std::sync::mpsc::{self, TryRecvError};
 
-fn main() {
+fn main() -> ! {
     println!("Hello, world!");
     // let host = "ptt.cc";
     let host = "192.168.86.32";
@@ -10,7 +14,7 @@ fn main() {
     let mut connection = Telnet::connect((host, 23), 256)
             .expect("Couldn't connect to the server...");
 
-    let res = connection.negotiate(&Action::Will, TelnetOption::Echo);
+    let _res = connection.negotiate(&Action::Will, TelnetOption::Echo);
 
     // println!("Connection: {}", connection);
 
@@ -33,11 +37,29 @@ fn main() {
 
     let mut line = 0;
 
-    let handle = thread::spawn(|| { write_loop(connection); });
+    let (transmitter, receiver) = mpsc::channel::<String>();
+
+    let _handle: thread::JoinHandle<()> = thread::spawn(move || { user_input_loop(transmitter); });
 
     loop {
-        let event = connection.read().expect("Read error");
 
+        match receiver.try_recv() {
+            Err(e) => {
+                println!("Receive error {}", e);
+            },
+            Ok(msg) => {                
+                println!("Got {}", msg);
+                let mut bytebuffer = ByteBuffer::new();
+                bytebuffer.write_bytes(msg.as_bytes());
+                let tail: [u8; 2] = [13, 10]; // b"\r\n"
+                bytebuffer.write_bytes(&tail);
+                let _write = connection.write(bytebuffer.as_bytes()).expect("Write Error");
+                println!("Wrote bytebuffer");
+            }
+        }
+
+        let event = connection.read().expect("Read error");
+        println!("Read done");
         if let Event::Data(buffer) = event {
             line += 1;
             // Debug: print the data buffer
@@ -57,12 +79,14 @@ fn main() {
 }
 
 
-fn write_loop(connection: Telnet) -> bool {
+fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
     loop {
         let mut line = String::new();
         let r = std::io::stdin().read_line(&mut line); // including '\n'
+        if line == "\n" { continue; }
         println!("Got user line {}", line);
+        transmitter.send(line).unwrap();
     
     } 
 }
