@@ -80,7 +80,7 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
     loop {
         let mut line = String::new();
-        let r = std::io::stdin().read_line(&mut line); // including '\n'
+        let _r = std::io::stdin().read_line(&mut line); // including '\n'
         if line == "\n" { continue; }
         println!("Got user line {}", line);
         transmitter.send(line).unwrap();
