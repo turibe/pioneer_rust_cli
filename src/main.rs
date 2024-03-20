@@ -4,6 +4,7 @@ pub(crate)
 use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
 use std::thread;
+use std::time::Duration;
 use std::sync::mpsc::{self, TryRecvError};
 
 fn main() -> ! {
@@ -42,7 +43,7 @@ fn main() -> ! {
     let _handle: thread::JoinHandle<()> = thread::spawn(move || { user_input_loop(transmitter); });
 
     loop {
-
+        println!("Running main loop");
         match receiver.try_recv() {
             Err(e) => {
                 println!("Receive error {}", e);
@@ -57,23 +58,19 @@ fn main() -> ! {
                 println!("Wrote bytebuffer");
             }
         }
+        println!("try_recv done");
 
-        let event = connection.read().expect("Read error");
+        let event = connection.read_timeout(Duration::new(1,0)).expect("Read error");
         println!("Read done");
         if let Event::Data(buffer) = event {
             line += 1;
             // Debug: print the data buffer
-            println!("Got event {:?}", buffer);
+            // println!("Got event {:?}", buffer);
             let r = String::from_utf8_lossy(&buffer);
             println!("Line {}: {}", line, r);
-            decode(r.to_string());
-
-            println!(
-                "Receive: {}",
-                std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes")
-            );
-
-            // process the data buffer
+            if ! decode(r.to_string()) { // TODO: decode buffer directly.
+                println!("Received: {}", std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes"));
+            };
         }
     }
 }
@@ -87,10 +84,11 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         if line == "\n" { continue; }
         println!("Got user line {}", line);
         transmitter.send(line).unwrap();
-    
+        println!("Sent user line");
     } 
 }
 
+// returns true if successful decoding:
 fn decode(s: String) -> bool {
     print!("Original string is {}", s);
     if ! s.starts_with("FL") {
@@ -101,9 +99,21 @@ fn decode(s: String) -> bool {
         Some(v) => v,
         None => return false,
     };
+    // remove first two? TODO
 
-    let mut url = "";
-    let mut i = 0;
-
+    let v: Vec<u8> = s.as_bytes().to_vec();
+    
+    let mut urlbytes = ByteBuffer::new();
+    let ampersand: [u8; 1] = [37]; // b"%"
+    let mut i = 2;
+    while i < v.len() {
+          urlbytes.write_bytes(&ampersand);
+          urlbytes.write_bytes(&[v[i], v[i+1]]);
+          i += 2;
+    }
+    // now need to do equivalent of urllib.parse.unquote
+    let binary = urlencoding::decode_binary(urlbytes.as_bytes());
+    let decoded = String::from_utf8_lossy(&binary);
+    println!("{}", decoded);
     return true;
 }
