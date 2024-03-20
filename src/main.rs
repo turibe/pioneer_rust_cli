@@ -1,3 +1,4 @@
+
 use bytebuffer::ByteBuffer;
 pub(crate)
 
@@ -5,7 +6,13 @@ use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
 use std::thread;
 use std::time::Duration;
-use std::sync::mpsc::{self, TryRecvError};
+use std::sync::mpsc::{self};
+
+mod modes_display;
+mod modes_set;
+pub mod other_maps;
+
+// use crate::modes_display;
 
 fn main() -> ! {
     println!("Hello, world!");
@@ -58,23 +65,41 @@ fn main() -> ! {
                 println!("Wrote bytebuffer");
             }
         }
-        println!("try_recv done");
-
+        // println!("try_recv done");
         let event = connection.read_timeout(Duration::new(1,0)).expect("Read error");
-        println!("Read done");
+        // println!("Read done");
         if let Event::Data(buffer) = event {
             line += 1;
             // Debug: print the data buffer
             // println!("Got event {:?}", buffer);
             let r = String::from_utf8_lossy(&buffer);
             println!("Line {}: {}", line, r);
-            if ! decode(r.to_string()) { // TODO: decode buffer directly.
-                println!("Received: {}", std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes"));
+            let mut srec: &str = &r.to_string();
+            srec = remove_suffix(srec, "\r\n");
+            if srec.starts_with("E0") {
+                let v = other_maps::ERROR_MAP.get(srec);
+                match v {
+                    Some(s) => { println!("{}", s); },
+                    None => { println!("Unknown error code {}", srec); }
+                }
+            continue;
+            };
+            if srec.starts_with("FL") {
+                if ! decode(srec.to_owned()) { // TODO: decode buffer directly?
+                    println!("Received: {}", std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes"));
+                    continue;
+                };
             };
         }
     }
 }
 
+fn remove_suffix<'x>(s: &'x str, suffix: &str) -> &'x str {
+    match s.strip_suffix(suffix) {
+        Some(s) => s,
+        None => s
+    }
+}
 
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
@@ -90,9 +115,9 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
 // returns true if successful decoding:
 fn decode(s: String) -> bool {
-    print!("Original string is {}", s);
+    // print!("Original string is {}", s);
     if ! s.starts_with("FL") {
-        println!("String does not start with FL");
+        // println!("String does not start with FL");
         return false;
     }
     let s = match s.strip_prefix("FL") {
