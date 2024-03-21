@@ -26,8 +26,6 @@ fn main() -> ! {
 
     // println!("Connection: {}", connection);
 
-    // println!("{}", res); // no formatter for res
-
     // let my_string: &str = "PO\r\n";
     // let buffer : [u8] = my_string.as_bytes();
 
@@ -90,8 +88,45 @@ fn main() -> ! {
                     continue;
                 };
             };
+            let decode_tone: Option<String> = decode_tone(&srec);
+            match decode_tone {
+                Some(tonestr) => {
+                    println!("{}", tonestr);
+                    continue;
+                }
+                None => {}
+            };
+
         }
     }
+}
+
+// TODO: return option
+fn decode_tone(s: &str) -> Option<String> {
+    if s.starts_with("TR") {
+        let dbs = db_level(s);
+        let fs = format!("treble at {}", s);
+        return Some(format!("treble at {}", s));
+    }
+    if s.starts_with("BA") {
+        let dbs = db_level(s);
+        let fs = format!("bass at {}", dbs);
+        return Some(fs);
+    }
+    if s == "TO0" {
+        return Some("tone off".to_string());
+    }
+    if s == "TO1" {
+        return Some("tone on".to_string());
+    }
+    return None;
+}
+
+fn db_level(s: &str) -> String {
+    let stripped= &s.to_string()[2..]; // just need to cut first two
+    let my_int = stripped.parse::<i32>().unwrap(); // TODO: get rid of unwarps?
+    let db = 6 - my_int;
+    return format!("{mydb}dB", mydb=db);
 }
 
 fn remove_suffix<'x>(s: &'x str, suffix: &str) -> &'x str {
@@ -114,6 +149,7 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 }
 
 // returns true if successful decoding:
+// TODO: return string, add unit tests.
 fn decode(s: String) -> bool {
     // print!("Original string is {}", s);
     if ! s.starts_with("FL") {
@@ -137,6 +173,7 @@ fn decode(s: String) -> bool {
           i += 2;
     }
     // now need to do equivalent of urllib.parse.unquote
+    // TODO: why the extra "%" ?
     let binary = urlencoding::decode_binary(urlbytes.as_bytes());
     let decoded = String::from_utf8_lossy(&binary);
     println!("{}", decoded);
