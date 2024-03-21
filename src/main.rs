@@ -88,25 +88,30 @@ fn main() -> ! {
                     continue;
                 };
             };
-            let decode_tone: Option<String> = decode_tone(&srec);
-            match decode_tone {
+            match decode_tone(&srec) {
                 Some(tonestr) => {
                     println!("{}", tonestr);
                     continue;
                 }
                 None => {}
             };
+            match decode_geh(&srec) {
+                Some(gehstr) => {
+                    println!("{}", gehstr);
+                    continue;
+                }
+                None => {}
+            }
 
         }
     }
 }
 
-// TODO: return option
 fn decode_tone(s: &str) -> Option<String> {
     if s.starts_with("TR") {
         let dbs = db_level(s);
-        let fs = format!("treble at {}", s);
-        return Some(format!("treble at {}", s));
+        let fs = format!("treble at {}", dbs);
+        return Some(fs);
     }
     if s.starts_with("BA") {
         let dbs = db_level(s);
@@ -119,6 +124,23 @@ fn decode_tone(s: &str) -> Option<String> {
     if s == "TO1" {
         return Some("tone on".to_string());
     }
+    return None;
+}
+
+fn decode_geh(s: &str) -> Option<String> {
+    if s.starts_with("GDH") {
+        let sbytes = &s.to_string()[3..];
+        let toslice = sbytes.to_string();
+        let fs = format!("items {} to {} of total {} ",
+             &toslice[0..5], &toslice[5..10], &toslice[10..]);
+        return Some(fs);
+    }
+    if s.starts_with("GBH") {
+        let toslice = s.to_string();
+        let fs = format!("max list number: {}", &toslice[2..]);
+        return Some(fs);
+    }
+    // TODO: more cases here
     return None;
 }
 
