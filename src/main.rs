@@ -8,6 +8,8 @@ use std::thread;
 use std::time::Duration;
 use std::sync::mpsc::{self};
 
+use crate::other_maps::COMMAND_MAP;
+
 mod modes_display;
 mod modes_set;
 pub mod other_maps;
@@ -24,54 +26,51 @@ fn main() -> ! {
 
     let _res = connection.negotiate(&Action::Will, TelnetOption::Echo);
 
-    // println!("Connection: {}", connection);
-
-    // let my_string: &str = "PO\r\n";
-    // let buffer : [u8] = my_string.as_bytes();
-
-    // let buffer: [u8; 4] = [83, 76, 77, 84];
+    /*** Send ON at start:
     let buffer: [u8; 4] = [80, 79, 13, 10]; // ON
-    // let buffer: [u8; 4] = [80, 70, 13, 10]; // OFF
-    
+    // let buffer: [u8; 4] = [80, 70, 13, 10]; // OFF    
     let s = match std::str::from_utf8(&buffer) {
         Ok(v) => v,
         Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
     };
     println!("S is {}", s);
-
     connection.write(&buffer).expect("Write Error");
+    ***/
 
-    let mut line = 0;
+    let mut line_number: i32 = 0;
 
     let (transmitter, receiver) = mpsc::channel::<String>();
-
     let _handle: thread::JoinHandle<()> = thread::spawn(move || { user_input_loop(transmitter); });
 
     loop {
-        println!("Running main loop");
+        // println!("Running main loop");
         match receiver.try_recv() {
-            Err(e) => {
-                println!("Receive error {}", e);
+            Err(_e) => {
+                // println!("Receive error {}", _e);
             },
             Ok(msg) => {                
-                println!("Got {}", msg);
+                // println!("Got {}", msg);
                 let mut bytebuffer = ByteBuffer::new();
                 bytebuffer.write_bytes(msg.as_bytes());
                 let tail: [u8; 2] = [13, 10]; // b"\r\n"
                 bytebuffer.write_bytes(&tail);
                 let _write = connection.write(bytebuffer.as_bytes()).expect("Write Error");
-                println!("Wrote bytebuffer");
+                // println!("Wrote bytebuffer");
             }
         }
         // println!("try_recv done");
-        let event = connection.read_timeout(Duration::new(1,0)).expect("Read error");
+        // busy wait:
+        // let event = connection.read_nonblocking().expect("Read error");
+        // too slow:
+        // let event = connection.read().expect("Read error");        
+        let event = connection.read_timeout(Duration::new(1,00000)).expect("Read error");
         // println!("Read done");
         if let Event::Data(buffer) = event {
-            line += 1;
+            line_number += 1;
             // Debug: print the data buffer
             // println!("Got event {:?}", buffer);
             let r = String::from_utf8_lossy(&buffer);
-            println!("Line {}: {}", line, r);
+            // println!("Line {}: {}", line_number, r);
             let mut srec: &str = &r.to_string();
             srec = remove_suffix(srec, "\r\n");
             if srec.starts_with("E0") {
@@ -146,9 +145,16 @@ fn decode_geh(s: &str) -> Option<String> {
 
 fn db_level(s: &str) -> String {
     let stripped= &s.to_string()[2..]; // just need to cut first two
-    let my_int = stripped.parse::<i32>().unwrap(); // TODO: get rid of unwarps?
-    let db = 6 - my_int;
-    return format!("{mydb}dB", mydb=db);
+    let my_int_option = stripped.parse::<i32>();
+    match my_int_option {
+        Ok(my_int) => {
+            let db = 6 - my_int;
+            return format!("{mydb}dB", mydb=db);
+        }
+        Err(_) => {
+            return "Error parsing DB level".to_string();
+        }
+    }
 }
 
 fn remove_suffix<'x>(s: &'x str, suffix: &str) -> &'x str {
@@ -162,10 +168,65 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
     loop {
         let mut line = String::new();
-        let _r = std::io::stdin().read_line(&mut line); // including '\n'
-        if line == "\n" { continue; }
-        println!("Got user line {}", line);
-        transmitter.send(line).unwrap();
+        let _r = std::io::stdin().read_line(&mut line); // including '\n'        
+        line = line.trim().to_string();
+        // println!("Got user line {}", line);
+        if line == "" { continue; }
+        if line == "quit" || line == "exit" {
+            std::process::exit(0);
+        }
+        if line == "status" {
+            let _ = transmitter.send("?BA".to_owned());
+            let _ = transmitter.send("?TR".to_owned());
+            let _ = transmitter.send("?TO".to_owned());
+            let _ = transmitter.send("?L".to_owned());
+            let _ = transmitter.send("?AST".to_owned());
+            // # send(tn, "?VTC") # not very interesting if always AUTO
+            continue;
+        }
+        let v: Vec<&str> = line.split(" ").collect();
+        let base = v[0];
+        // let arg1: &str = if v.len() > 1 { v[1] } else {""};
+        
+        if base == "help" {
+            println!("Help will go here");
+            if v.len() > 1 {
+                if v[1] == "mode" {
+                    // print_mode_help();
+                    continue
+                }
+            }
+            continue;
+        }
+        if base == "select" {
+            println!("TODO");
+            continue;
+        }
+        if base == "display" {
+            println!("TODO");
+            continue;
+        }
+        if base == "mode" {
+            println!("TODO");
+            continue;
+        }
+        match COMMAND_MAP.get(&line) {
+            Some(s) => {
+                let _res = transmitter.send(s.to_string());
+                continue;
+            },
+            None => {}
+        }
+        let numoption = line.parse::<i32>();
+        match numoption {
+            Ok(i) => {
+                println!("Got integer {}", i);
+                continue;
+            }
+            Err(_) => {}
+        }
+        println!("Sending raw command {}", line);
+        let _send = transmitter.send(line);
         println!("Sent user line");
     } 
 }
