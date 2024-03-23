@@ -11,7 +11,7 @@ use std::sync::mpsc::{self};
 
 use crate::other_maps::COMMAND_MAP;
 
-use text_io::read;
+// use text_io::read;
 
 mod modes_display;
 mod modes_set;
@@ -65,8 +65,9 @@ fn main() -> ! {
         // busy wait:
         // let event = connection.read_nonblocking().expect("Read error");
         // too slow:
-        // let event = connection.read().expect("Read error");        
-        let event = connection.read_timeout(Duration::new(1,00000)).expect("Read error");
+        // let event = connection.read().expect("Read error");
+        let timeout:u32 = (1_000_000 * 1_000) / 20;
+        let event = connection.read_timeout(Duration::new(0,timeout)).expect("Read error");
         // println!("Read done");
         if let Event::Data(buffer) = event {
             line_number += 1;
@@ -74,40 +75,47 @@ fn main() -> ! {
             // println!("Got event {:?}", buffer);
             let r = String::from_utf8_lossy(&buffer);
             // println!("Line {}: {}", line_number, r);
-            let mut srec: &str = &r.to_string();
-            srec = remove_suffix(srec, "\r\n");
-            if srec.starts_with("E0") {
-                let v = other_maps::ERROR_MAP.get(srec);
-                match v {
-                    Some(s) => { println!("{}", s); },
-                    None => { println!("Unknown error code {}", srec); }
-                }
-            continue;
-            };
-            if srec.starts_with("FL") {
-                if ! decode(srec.to_owned()) { // TODO: decode buffer directly?
-                    println!("Received: {}", std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes"));
-                    continue;
-                };
-            };
-            match decode_tone(&srec) {
-                Some(tonestr) => {
-                    println!("{}", tonestr);
-                    continue;
-                }
-                None => {}
-            };
-            match decode_geh(&srec) {
-                Some(gehstr) => {
-                    println!("{}", gehstr);
-                    continue;
-                }
-                None => {}
+            let srec: &str = &r.to_string();
+            for l in srec.split_ascii_whitespace() {
+                // srec = remove_suffix(srec, "\r\n");
+                process_status_line(l.to_string());
             }
-
+             // println!("Received: {}", std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes"));
         }
     }
 }
+
+fn process_status_line(srec:String) {
+    if srec.starts_with("E0") {
+        let v = other_maps::ERROR_MAP.get(&srec);
+            match v {
+                Some(s) => { println!("{}", s); },
+                None => { println!("Unknown error code {}", srec); }
+            }
+        return;
+    }
+    if srec.starts_with("FL") {
+        if !decode(srec.to_owned()) { // TODO: decode buffer directly?
+            println!("Couldn't decode {}", srec);
+           return;
+        };
+    }
+    match decode_tone(&srec) {
+        Some(tonestr) => {
+            println!("{}", tonestr);
+            return;
+        }
+        None => {}
+    };
+    match decode_geh(&srec) {
+        Some(gehstr) => {
+            println!("{}", gehstr);
+            return;
+        }
+        None => {}
+    }
+}
+
 
 fn decode_tone(s: &str) -> Option<String> {
     if s.starts_with("TR") {
@@ -155,7 +163,7 @@ fn db_level(s: &str) -> String {
             return format!("{mydb}dB", mydb=db);
         }
         Err(_) => {
-            return "Error parsing DB level".to_string();
+            return format!("Error parsing DB level, string was {}", s);
         }
     }
 }
@@ -170,11 +178,12 @@ fn remove_suffix<'x>(s: &'x str, suffix: &str) -> &'x str {
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
     loop {
-        // let mut line = String::new();
-        // let _r = std::io::stdin().read_line(&mut line); // including '\n'
+        
         print!("Command: ");
         let _flush = std::io::stdout().lock().flush();
-        let mut line: String = read!("{}\n");
+        let mut line = String::new();
+        let _r = std::io::stdin().read_line(&mut line); // including '\n'
+        // let mut line: String = read!("{}\n");
         line = line.trim().to_string();
         // println!("Got user line {}", line);
         if line == "" { continue; }
