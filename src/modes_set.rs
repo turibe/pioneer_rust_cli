@@ -1,8 +1,8 @@
 use phf::phf_map;
 
 // This is the ****SR listening mode set:
-
-pub(crate) static MODE_SET_MAP: phf::Map<&'static str, &'static str> = phf_map! {
+pub(crate) 
+static MODE_SET_MAP: phf::Map<&'static str, &'static str> = phf_map! {
 "0001" => "STEREO (cyclic)",
 "0010" => "STANDARD",
 "0009" => "STEREO (direct set)",
@@ -128,3 +128,22 @@ for (k,v) in modeSetMap.items():
 	vkey = v.lower().strip()
 	inverseModeSetMap[vkey] = k
 ***/
+
+// extern crate lazy_static;
+use lazy_static::lazy_static;
+
+use std::{borrow::Borrow, collections::HashMap};
+
+lazy_static! {
+	pub(crate)
+    static ref INVERSE_MODE_SET_MAP: HashMap<&'static str, &'static str> = {
+        let mut m = HashMap::new();
+		for (k,v) in MODE_SET_MAP.entries() {
+			let k1 = k.borrow();
+			let v1 = v.borrow();
+			m.insert(v1, k1);
+		};
+		m
+	};
+}
+

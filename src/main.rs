@@ -1,7 +1,8 @@
 
 use bytebuffer::ByteBuffer;
-use other_maps::{AIF_MAP, SCREEN_TYPE_MAP, TYPE_MAP};
-pub(crate)
+
+mod other_maps;
+use crate::other_maps::{AIF_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
 
 use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
@@ -10,17 +11,15 @@ use std::thread;
 use std::time::Duration;
 use std::sync::mpsc::{self};
 
-use other_maps::COMMAND_MAP;
-use other_maps::SOURCE_MAP;
-use modes_set::MODE_SET_MAP;
+mod modes_display;
 
 use crate::modes_display::MODE_DISPLAY_MAP;
 
 // use text_io::read;
 
-mod modes_display;
 mod modes_set;
-pub mod other_maps;
+use modes_set::MODE_SET_MAP;
+use modes_set::INVERSE_MODE_SET_MAP;
 
 // use crate::modes_display;
 
@@ -92,17 +91,17 @@ fn main() -> ! {
 
 fn process_status_line(srec:String) {
     if srec.starts_with("E0") {
-        match other_maps::ERROR_MAP.get(&srec) {            
+        match ERROR_MAP.get(&srec) {            
             Some(s) => { println!("{}", s); },
             None => { println!("Unknown error code {}", srec); }
         };
         return;
     }
     if srec.starts_with("FL") {
-        if !decode(srec.to_owned()) {
-            println!("Couldn't decode {}", srec);
-           return;
+        if !decode_fl(&srec[2..]) {
+            println!("Couldn't decode FL {}", srec);
         };
+        return;
     }
     match decode_tone(&srec) {
         Some(tonestr) => {
@@ -119,23 +118,25 @@ fn process_status_line(srec:String) {
         None => {}
     }
     if srec.starts_with("AST") {
-        decode_ast(srec);
+        decode_ast(&srec[3..]);
         return;
     }
     if srec.starts_with("VTC") {
-        decode_vtc(srec);
+        let s = decode_vtc(&srec[3..]);
+        println!("{}", s);
         return;
     }
     if srec.starts_with("SR") {
         let code = &srec[2..];
         match MODE_SET_MAP.get(code) {
             Some(v) => {
-                println!("mode is {} ({})", v, srec)
+                println!("mode is {} ({})", v, srec);
             },
             None => {
                 println!("unknown SR mode {}", srec);
             }
         }
+        return;
     }
     if srec.starts_with("LM") {
         let key = &srec[2..];
@@ -144,12 +145,12 @@ fn process_status_line(srec:String) {
                 None => "unknown"
             };
         println!("Listening mode is {} ({})", ms, srec);
+        return;
     }
     println!("Unknown status line {}", srec);
 }
 
-fn decode_ast(srec: String) -> bool {
-    let s = &srec[3..];
+fn decode_ast(s: &str) -> bool {
     println!("Audio input signal: {}", decode_ais(&s[0..2]));
     println!("Audio input frequency: {}", decode_aif(&s[2..4]));
     return false;
@@ -159,22 +160,60 @@ fn decode_ais(s:&str) -> &str {
     if "00" <= s && s <= "02" {
         return "ANALOG";
     }
-    if s == "03" || s == "04" {
+    if s=="03" || s=="04" {
         return "PCM";
     }
-    if s == "05" {
+    if s=="05" {
         return "DOLBY DIGITAL";
     }
-    if s == "06" {
-        return "DTS"
+    if s=="06" {
+        return "DTS";
     }
-    if s == "07" {
+    if s=="07" {
         return "DTS-ES Matrix";
     }
-    if s == "08" {
+    if s=="08" {
         return "DTS-ES Discrete";
     }
-    // TODO: add cases, move to separate file?
+    if s=="09" {
+        return "DTS 96/24";
+    }
+    if s=="10" {
+        return "DTS 96/24 ES Matrix";
+    }
+    if s=="11" {
+        return "DTS 96/24 ES Discrete";
+    }
+    if s=="12" {
+        return "MPEG-2 AAC";
+    }
+    if s=="13" {
+        return "WMA9 Pro";
+    }
+    if s=="14" {
+        return "DSD->PCM";
+    }
+    if s=="15" {
+        return "HDMI THROUGH";
+    }
+    if s=="16" {
+        return "DOLBY DIGITAL PLUS";
+    }
+    if s=="17" {
+        return "DOLBY TrueHD";
+    }
+    if s=="18" {
+        return "DTS EXPRESS";
+    }
+    if s=="19" {
+        return "DTS-HD Master Audio";
+    }
+    if "20" <= s && s <= "26" {
+        return "DTS-HD High Resolution";
+    }
+    if s=="27" {
+        return "DTS-HD Master Audio";
+    }
     return "unknown ais";
 }
 
@@ -185,8 +224,11 @@ fn decode_aif(s:&str) -> &str {
     }
 }
 
-fn decode_vtc(srec: String) -> bool {
-    todo!()
+fn decode_vtc(s: &str) -> &str {
+    match VTC_RESOLUTION_MAP.get(s) {
+        Some(v) => v,
+        None => "unknown VTC resolution"
+    }
 }
 
 
@@ -306,7 +348,7 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         if base == "help" || base == "?" {
             if v.len() > 1 {
                 if v[1] == "mode" {
-                    // print_mode_help();
+                    print_mode_help();
                     continue
                 }
             }
@@ -348,19 +390,17 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
     } 
 }
 
+fn print_mode_help() -> bool {
+    println!("mode [mode]\tfor one of:");
+    for k in INVERSE_MODE_SET_MAP.keys() {
+        println!("{}", k);
+    };
+    return true;
+}
+
 // returns true if successful decoding:
 // TODO: return string, add unit tests.
-fn decode(s: String) -> bool {
-    // print!("Original string is {}", s);
-    if ! s.starts_with("FL") {
-        // println!("String does not start with FL");
-        return false;
-    }
-    let s = match s.strip_prefix("FL") {
-        Some(v) => v,
-        None => return false,
-    };
-    // remove first two? TODO
+fn decode_fl(s: &str) -> bool {
 
     let v: Vec<u8> = s.as_bytes().to_vec();
     
