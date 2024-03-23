@@ -2,7 +2,7 @@ use phf::phf_map;
 
 // This is the ****SR listening mode set:
 
-static MODE_SET_MAP: phf::Map<&'static str, &'static str> = phf_map! {
+pub(crate) static MODE_SET_MAP: phf::Map<&'static str, &'static str> = phf_map! {
 "0001" => "STEREO (cyclic)",
 "0010" => "STANDARD",
 "0009" => "STEREO (direct set)",

@@ -1,5 +1,6 @@
 
 use bytebuffer::ByteBuffer;
+use other_maps::{AIF_MAP, SCREEN_TYPE_MAP, TYPE_MAP};
 pub(crate)
 
 use telnet::{Event, Telnet};
@@ -9,7 +10,11 @@ use std::thread;
 use std::time::Duration;
 use std::sync::mpsc::{self};
 
-use crate::other_maps::COMMAND_MAP;
+use other_maps::COMMAND_MAP;
+use other_maps::SOURCE_MAP;
+use modes_set::MODE_SET_MAP;
+
+use crate::modes_display::MODE_DISPLAY_MAP;
 
 // use text_io::read;
 
@@ -87,15 +92,14 @@ fn main() -> ! {
 
 fn process_status_line(srec:String) {
     if srec.starts_with("E0") {
-        let v = other_maps::ERROR_MAP.get(&srec);
-            match v {
-                Some(s) => { println!("{}", s); },
-                None => { println!("Unknown error code {}", srec); }
-            }
+        match other_maps::ERROR_MAP.get(&srec) {            
+            Some(s) => { println!("{}", s); },
+            None => { println!("Unknown error code {}", srec); }
+        };
         return;
     }
     if srec.starts_with("FL") {
-        if !decode(srec.to_owned()) { // TODO: decode buffer directly?
+        if !decode(srec.to_owned()) {
             println!("Couldn't decode {}", srec);
            return;
         };
@@ -114,6 +118,75 @@ fn process_status_line(srec:String) {
         }
         None => {}
     }
+    if srec.starts_with("AST") {
+        decode_ast(srec);
+        return;
+    }
+    if srec.starts_with("VTC") {
+        decode_vtc(srec);
+        return;
+    }
+    if srec.starts_with("SR") {
+        let code = &srec[2..];
+        match MODE_SET_MAP.get(code) {
+            Some(v) => {
+                println!("mode is {} ({})", v, srec)
+            },
+            None => {
+                println!("unknown SR mode {}", srec);
+            }
+        }
+    }
+    if srec.starts_with("LM") {
+        let key = &srec[2..];
+        let ms = match MODE_DISPLAY_MAP.get(key) {
+                Some(v) => v,
+                None => "unknown"
+            };
+        println!("Listening mode is {} ({})", ms, srec);
+    }
+    println!("Unknown status line {}", srec);
+}
+
+fn decode_ast(srec: String) -> bool {
+    let s = &srec[3..];
+    println!("Audio input signal: {}", decode_ais(&s[0..2]));
+    println!("Audio input frequency: {}", decode_aif(&s[2..4]));
+    return false;
+}
+
+fn decode_ais(s:&str) -> &str {
+    if "00" <= s && s <= "02" {
+        return "ANALOG";
+    }
+    if s == "03" || s == "04" {
+        return "PCM";
+    }
+    if s == "05" {
+        return "DOLBY DIGITAL";
+    }
+    if s == "06" {
+        return "DTS"
+    }
+    if s == "07" {
+        return "DTS-ES Matrix";
+    }
+    if s == "08" {
+        return "DTS-ES Discrete";
+    }
+    // TODO: add cases, move to separate file?
+    return "unknown ais";
+}
+
+fn decode_aif(s:&str) -> &str {
+    match AIF_MAP.get(s) {
+        Some(v) => return v,
+        None => return "unknown"
+    }
+}
+
+fn decode_vtc(srec: String) -> bool {
+    todo!()
 }
 
 
@@ -150,9 +223,36 @@ fn decode_geh(s: &str) -> Option<String> {
         let fs = format!("max list number: {}", &toslice[2..]);
         return Some(fs);
     }
-    // TODO: more cases here
-    return None;
+    if s.starts_with("GCH") {
+        let key = &s.to_string()[3..5];
+        let val = match SCREEN_TYPE_MAP.get(key) {
+            Some(sv) => sv,
+            None => "unknown"
+        };
+        let fs = format!("{} - {}", val, s);
+        return Some(fs);
+    }
+    if s.starts_with("GHH") {
+        let key = &s.to_string()[2..];
+        let val = match SOURCE_MAP.get(key) {
+            Some(sv) => sv,
+            None => "unknown"
+        };
+        let fs = format!("source: {}", val);
+        return Some(fs);
+    }
+    if ! s.starts_with("GEH") { return None; }
+    let suf = &s[3..];
+    let key = &suf[3..5];
+    let binding = format!("unknown ({})", key).to_string();
+    let typeval: &str = match TYPE_MAP.get(key) {
+        Some(sv) => sv,
+        None => &binding
+    };
+    let info = &suf[5..];
+    return Some(format!("{} : {}", typeval, info));
 }
+
 
 fn db_level(s: &str) -> String {
     let stripped= &s.to_string()[2..]; // just need to cut first two
