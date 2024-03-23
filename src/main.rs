@@ -4,11 +4,14 @@ pub(crate)
 
 use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
+use std::io::Write;
 use std::thread;
 use std::time::Duration;
 use std::sync::mpsc::{self};
 
 use crate::other_maps::COMMAND_MAP;
+
+use text_io::read;
 
 mod modes_display;
 mod modes_set;
@@ -167,8 +170,11 @@ fn remove_suffix<'x>(s: &'x str, suffix: &str) -> &'x str {
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
     loop {
-        let mut line = String::new();
-        let _r = std::io::stdin().read_line(&mut line); // including '\n'        
+        // let mut line = String::new();
+        // let _r = std::io::stdin().read_line(&mut line); // including '\n'
+        print!("Command: ");
+        let _flush = std::io::stdout().lock().flush();
+        let mut line: String = read!("{}\n");
         line = line.trim().to_string();
         // println!("Got user line {}", line);
         if line == "" { continue; }
@@ -188,13 +194,15 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         let base = v[0];
         // let arg1: &str = if v.len() > 1 { v[1] } else {""};
         
-        if base == "help" {
-            println!("Help will go here");
+        if base == "help" || base == "?" {
             if v.len() > 1 {
                 if v[1] == "mode" {
                     // print_mode_help();
                     continue
                 }
+            }
+            else {
+                print_help();
             }
             continue;
         }
@@ -261,4 +269,12 @@ fn decode(s: String) -> bool {
     let decoded = String::from_utf8_lossy(&binary);
     println!("{}", decoded);
     return true;
+}
+
+fn print_help() {
+    println!("Help: ------------ ");
+    for k in COMMAND_MAP.keys() {
+        println!("{}", k);
+    }
+    println!("quit or exit to finish");
 }
