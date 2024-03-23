@@ -103,6 +103,7 @@ fn process_status_line(srec:String) {
         };
         return;
     }
+    // TOFIX: standardize cases
     match decode_tone(&srec) {
         Some(tonestr) => {
             println!("{}", tonestr);
@@ -145,6 +146,9 @@ fn process_status_line(srec:String) {
                 None => "unknown"
             };
         println!("Listening mode is {} ({})", ms, srec);
+        return;
+    }
+    if srec.starts_with("VOL") {
         return;
     }
     println!("Unknown status line {}", srec);
@@ -378,8 +382,22 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         }
         let numoption = line.parse::<i32>();
         match numoption {
-            Ok(i) => {
+            Ok(mut i) => {
                 println!("Got integer {}", i);
+                if i > 0 {
+                    i = i32::min(i, 10);
+                    println!("Volume up {}", i);
+                    for _ in 0..i {
+                        let _ = transmitter.send("VU".to_string());
+                    }
+                }
+                else {
+                    i = i32::abs(i32::max(i, -30));
+                    println!("Volume down {}", i);
+                    for _ in 0..i {
+                        let _ = transmitter.send("VD".to_string());
+                    }
+                }
                 continue;
             }
             Err(_) => {}
