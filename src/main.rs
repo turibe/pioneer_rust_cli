@@ -24,12 +24,10 @@ use modes_set::INVERSE_MODE_SET_MAP;
 // use crate::modes_display;
 
 fn main() -> ! {
-    println!("Hello, world!");
-    // let host = "ptt.cc";
     let host = "192.168.86.32";
-    // let host = "localhost";
+    println!("Connecting to AVR at address {}", host);
     let mut connection = Telnet::connect((host, 23), 256)
-            .expect("Couldn't connect to the server...");
+            .expect("Couldn't connect to the hostr...");
 
     let _res = connection.negotiate(&Action::Will, TelnetOption::Echo);
 
@@ -50,7 +48,6 @@ fn main() -> ! {
     let _handle: thread::JoinHandle<()> = thread::spawn(move || { user_input_loop(transmitter); });
 
     loop {
-        // println!("Running main loop");
         match receiver.try_recv() {
             Err(_e) => {
                 // println!("Receive error {}", _e);
@@ -82,61 +79,54 @@ fn main() -> ! {
             let srec: &str = &r.to_string();
             for l in srec.split_ascii_whitespace() {
                 // srec = remove_suffix(srec, "\r\n");
-                process_status_line(l.to_string());
+                let s = process_status_line(l.to_string());
+                println!("{}", s);
             }
-             // println!("Received: {}", std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes"));
+            // println!("Received: {}", std::str::from_utf8(&buffer[..]).unwrap_or("Bad utf-8 bytes"));
         }
     }
 }
 
-fn process_status_line(srec:String) {
+// Processes a status line (string) received from the AVR, returning a human-readable string
+// with the information it contains:
+fn process_status_line(srec:String) -> String {
     if srec.starts_with("E0") {
         match ERROR_MAP.get(&srec) {            
-            Some(s) => { println!("{}", s); },
-            None => { println!("Unknown error code {}", srec); }
+            Some(s) => { return s.to_string(); }
+            None => { return format!("Unknown error code {}", srec); }
         };
-        return;
     }
     if srec.starts_with("FL") {
-        if !decode_fl(&srec[2..]) {
-            println!("Couldn't decode FL {}", srec);
-        };
-        return;
+        return decode_fl(&srec[2..]).to_owned();
     }    
     match decode_tone(&srec) {
         Some(tonestr) => {
-            println!("{}", tonestr);
-            return;
+            return tonestr;
         }
         None => {}
     };
     match decode_geh(&srec) {
         Some(gehstr) => {
-            println!("{}", gehstr);
-            return;
+            return gehstr;
         }
         None => {}
     }
     if srec.starts_with("AST") {
-        decode_ast(&srec[3..]);
-        return;
+        return decode_ast(&srec[3..]);
     }
     if srec.starts_with("VTC") {
-        let s = decode_vtc(&srec[3..]);
-        println!("{}", s);
-        return;
+        return decode_vtc(&srec[3..]);
     }
     if srec.starts_with("SR") {
         let code = &srec[2..];
-        match MODE_SET_MAP.get(code) {
+        return match MODE_SET_MAP.get(code) {
             Some(v) => {
-                println!("mode is {} ({})", v, srec);
+                format!("mode is {} ({})", v, srec)
             },
             None => {
-                println!("unknown SR mode {}", srec);
+                format!("unknown SR mode {}", srec)
             }
-        }
-        return;
+        };
     }
     // translate_mode
     if srec.starts_with("LM") {
@@ -145,19 +135,20 @@ fn process_status_line(srec:String) {
                 Some(v) => v,
                 None => "unknown"
             };
-        println!("Listening mode is {} ({})", ms, srec);
-        return;
+        return format!("Listening mode is {} ({})", ms, srec);
     }
     if srec.starts_with("VOL") {
-        return;
+        return "".to_string();
     }
-    println!("Unknown status line {}", srec);
+    return format!("Unknown status line {}", srec);
 }
 
 
-fn decode_ast(s: &str) -> () {
-    println!("Audio input signal: {}", decode_ais(&s[0..2]));
-    println!("Audio input frequency: {}", decode_aif(&s[2..4]));
+fn decode_ast(s: &str) -> String {
+    let s1 = format!("Audio input signal: {}", decode_ais(&s[0..2]));
+    let s2 = format!("Audio input frequency: {}", decode_aif(&s[2..4]));
+    let s3 = s1 + "\n" + &s2;
+    return s3;
 }
 
 fn decode_ais(s:&str) -> &str {
@@ -228,10 +219,10 @@ fn decode_aif(s:&str) -> &str {
     }
 }
 
-fn decode_vtc(s: &str) -> &str {
+fn decode_vtc(s: &str) -> String {
     match VTC_RESOLUTION_MAP.get(s) {
-        Some(v) => v,
-        None => "unknown VTC resolution"
+        Some(v) => v.to_string(),
+        None => "unknown VTC resolution".to_owned()
     }
 }
 
@@ -415,17 +406,17 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
     } 
 }
 
-fn print_mode_help() -> bool {
+
+fn print_mode_help() {
     println!("mode [mode]\tfor one of:");
     for k in INVERSE_MODE_SET_MAP.keys() {
         println!("{}", k);
     };
-    return true;
 }
 
-// returns true if successful decoding:
-// TODO: return string, add unit tests.
-fn decode_fl(s: &str) -> bool {
+
+// TODO: add unit tests.
+fn decode_fl(s: &str) -> String {
 
     let v: Vec<u8> = s.as_bytes().to_vec();
     
@@ -437,13 +428,12 @@ fn decode_fl(s: &str) -> bool {
           urlbytes.write_bytes(&[v[i], v[i+1]]);
           i += 2;
     }
-    // now need to do equivalent of urllib.parse.unquote
-    // TODO: why the extra "%" ?
+    // now need to do equivalent of urllib.parse.unquote:
     let binary = urlencoding::decode_binary(urlbytes.as_bytes());
     let decoded = String::from_utf8_lossy(&binary);
-    println!("{}", decoded);
-    return true;
+    return decoded.to_string(); 
 }
+
 
 fn print_help() {
     println!("Help: ------------ ");
@@ -452,6 +442,7 @@ fn print_help() {
     }
     println!("quit or exit to finish");
 }
+
 
 fn change_mode(vec: Vec<&str>) -> Option<String> {
     if vec.len() < 2 {
