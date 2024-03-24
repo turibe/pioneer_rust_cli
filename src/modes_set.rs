@@ -136,14 +136,25 @@ use std::{borrow::Borrow, collections::HashMap};
 
 lazy_static! {
 	pub(crate)
-    static ref INVERSE_MODE_SET_MAP: HashMap<&'static str, &'static str> = {
+    static ref INVERSE_MODE_SET_MAP: HashMap<String, &'static str> = {
         let mut m = HashMap::new();
 		for (k,v) in MODE_SET_MAP.entries() {
-			let k1 = k.borrow();
-			let v1 = v.borrow();
-			m.insert(v1, k1);
+			let v1 = v.to_lowercase();
+			m.insert(v1, k.borrow());
 		};
 		m
 	};
 }
 
+use std::collections::HashSet;
+
+pub
+fn get_modes_with_prefix(prefix: &str) -> HashSet<&String> {
+    let mut s = HashSet::new();
+    for k in INVERSE_MODE_SET_MAP.keys() {
+		if k.starts_with(prefix) {
+			s.insert(k);
+		}
+	}
+	return s;
+}

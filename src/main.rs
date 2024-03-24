@@ -18,7 +18,7 @@ use crate::modes_display::MODE_DISPLAY_MAP;
 // use text_io::read;
 
 mod modes_set;
-use modes_set::MODE_SET_MAP;
+use modes_set::{get_modes_with_prefix, MODE_SET_MAP};
 use modes_set::INVERSE_MODE_SET_MAP;
 
 // use crate::modes_display;
@@ -102,8 +102,7 @@ fn process_status_line(srec:String) {
             println!("Couldn't decode FL {}", srec);
         };
         return;
-    }
-    // TOFIX: standardize cases
+    }    
     match decode_tone(&srec) {
         Some(tonestr) => {
             println!("{}", tonestr);
@@ -139,6 +138,7 @@ fn process_status_line(srec:String) {
         }
         return;
     }
+    // translate_mode
     if srec.starts_with("LM") {
         let key = &srec[2..];
         let ms = match MODE_DISPLAY_MAP.get(key) {
@@ -154,10 +154,10 @@ fn process_status_line(srec:String) {
     println!("Unknown status line {}", srec);
 }
 
-fn decode_ast(s: &str) -> bool {
+
+fn decode_ast(s: &str) -> () {
     println!("Audio input signal: {}", decode_ais(&s[0..2]));
     println!("Audio input frequency: {}", decode_aif(&s[2..4]));
-    return false;
 }
 
 fn decode_ais(s:&str) -> &str {
@@ -323,8 +323,7 @@ fn remove_suffix<'x>(s: &'x str, suffix: &str) -> &'x str {
 
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
-    loop {
-        
+    loop {        
         print!("Command: ");
         let _flush = std::io::stdout().lock().flush();
         let mut line = String::new();
@@ -369,13 +368,21 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             println!("TODO");
             continue;
         }
-        if base == "mode" {
-            println!("TODO");
+        if base == "mode" && v.len() > 1 {
+            // println!("Attempting to change mode");
+            match change_mode(v) {
+                Some(code) => { 
+                    let _res = transmitter.send(code);
+                },
+                None => {}
+            };
             continue;
         }
         match COMMAND_MAP.get(&line) {
             Some(s) => {
-                let _res = transmitter.send(s.to_string());
+                let cmd = s.to_string();
+                println!("Sending command {}", cmd);
+                let _res = transmitter.send(cmd);
                 continue;
             },
             None => {}
@@ -444,4 +451,32 @@ fn print_help() {
         println!("{}", k);
     }
     println!("quit or exit to finish");
+}
+
+fn change_mode(vec: Vec<&str>) -> Option<String> {
+    if vec.len() < 2 {
+        return None;
+    }
+    let modestring: String = (vec[1..]).join(" ").to_lowercase();
+    if modestring == "help" {
+        print_mode_help();
+        return None;
+    }
+    let mset = get_modes_with_prefix(&modestring);
+    println!("get_modes_with_prefix got {}", mset.len());
+    if mset.len() == 0 {
+        println!("Unknown mode {}", modestring);
+        return None;
+    }
+    if mset.len() > 1 {
+        println!("Which one do you mean? Options are:");
+        for s in mset {
+            println!("{}", s);
+        }
+        return None;
+    }
+    let mode = mset.iter().next().unwrap().to_owned().to_owned();
+    let m = INVERSE_MODE_SET_MAP.get(&mode).unwrap();
+    println!("Trying to change to modestring {} ({})", mode, m.to_owned());
+    return Some(m.to_string());
 }
