@@ -1,11 +1,13 @@
-
+// pub mod modes_display;
 // see https://crates.io/crates/phf
 
 use phf::phf_map;
 
 // LISTENING MODE information
 
-pub(crate) static MODE_DISPLAY_MAP: phf::Map<&'static str, &'static str> = phf_map! {
+pub(crate)
+
+static MODE_DISPLAY_MAP: phf::Map<&'static str, &'static str> = phf_map! {
 "0101" => "[)(]PLIIx MOVIE",
 "0102" => "[)(]PLII MOVIE",
 "0103" => "[)(]PLIIx MUSIC",

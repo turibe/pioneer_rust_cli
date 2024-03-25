@@ -1,5 +1,6 @@
 
 use bytebuffer::ByteBuffer;
+use other_maps::INPUT_MAP;
 
 mod other_maps;
 use crate::other_maps::{AIF_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
@@ -33,7 +34,7 @@ fn main() -> ! {
 
     /*** Send ON at start:
     let buffer: [u8; 4] = [80, 79, 13, 10]; // ON
-    // let buffer: [u8; 4] = [80, 70, 13, 10]; // OFF    
+    // let buffer: [u8; 4] = [80, 70, 13, 10]; // OFF
     let s = match std::str::from_utf8(&buffer) {
         Ok(v) => v,
         Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
@@ -47,13 +48,24 @@ fn main() -> ! {
     let (transmitter, receiver) = mpsc::channel::<String>();
     let _handle: thread::JoinHandle<()> = thread::spawn(move || { user_input_loop(transmitter); });
 
-    loop {
+    let mut debug = false;
+
+    loop { // receiving from the user channel
+
         match receiver.try_recv() {
             Err(_e) => {
                 // println!("Receive error {}", _e);
             },
-            Ok(msg) => {                
-                // println!("Got {}", msg);
+            Ok(msg) => {
+                if debug {
+                    println!("Got from user side: {}", msg);
+                }
+                if msg == "debug" {
+                    debug = ! debug;
+                    println!("Debug is now {}", debug);
+                    continue;
+                }
+
                 let mut bytebuffer = ByteBuffer::new();
                 bytebuffer.write_bytes(msg.as_bytes());
                 let tail: [u8; 2] = [13, 10]; // b"\r\n"
@@ -69,16 +81,19 @@ fn main() -> ! {
         // let event = connection.read().expect("Read error");
         let timeout:u32 = (1_000_000 * 1_000) / 20;
         let event = connection.read_timeout(Duration::new(0,timeout)).expect("Read error");
-        // println!("Read done");
+
         if let Event::Data(buffer) = event {
             line_number += 1;
-            // Debug: print the data buffer
-            // println!("Got event {:?}", buffer);
+
+            if debug {
+                println!("Got event from AVR: {:?}", buffer);
+            }
             let r = String::from_utf8_lossy(&buffer);
-            // println!("Line {}: {}", line_number, r);
+            if debug {
+                println!("Line {}: {}", line_number, r);
+            }
             let srec: &str = &r.to_string();
             for l in srec.split_ascii_whitespace() {
-                // srec = remove_suffix(srec, "\r\n");
                 let s = process_status_line(l.to_string());
                 println!("{}", s);
             }
@@ -90,27 +105,55 @@ fn main() -> ! {
 // Processes a status line (string) received from the AVR, returning a human-readable string
 // with the information it contains:
 fn process_status_line(srec:String) -> String {
-    if srec.starts_with("E0") {
-        match ERROR_MAP.get(&srec) {            
+    match ERROR_MAP.get(&srec) {
             Some(s) => { return s.to_string(); }
-            None => { return format!("Unknown error code {}", srec); }
-        };
+            None => {}
     }
+
     if srec.starts_with("FL") {
         return decode_fl(&srec[2..]).to_owned();
-    }    
+    }
+
     match decode_tone(&srec) {
         Some(tonestr) => {
             return tonestr;
         }
         None => {}
-    };
+    }
+
     match decode_geh(&srec) {
         Some(gehstr) => {
             return gehstr;
         }
         None => {}
     }
+
+    if srec.starts_with("FN") {
+        let is = match INPUT_MAP.get(&srec[2..]) {
+            Some(s) => s.to_string(),
+            None => format!("unknown ({})", srec)
+        };
+        return format!("Input is {}", is);
+    }
+    if srec.starts_with("ATW") {
+        let fl:&str = if srec == "ATW1" { "on" } else  { "off" };
+        return format!("loudness is {}", fl);
+    }
+
+    if srec.starts_with("ATC") {
+        let fl:&str = if srec == "ATC1" { "on" } else  { "off" };
+        return format!("eq is {}", fl);
+    }
+
+    if srec.starts_with("ATD") {
+        let fl:&str = if srec == "ATD1" { "on" } else { "off" };
+        return format!("standing wave is {}", fl);
+    }
+
+    if srec.starts_with("ATE") {
+
+    }
+    // translate_mode is below
     if srec.starts_with("AST") {
         return decode_ast(&srec[3..]);
     }
@@ -305,16 +348,11 @@ fn db_level(s: &str) -> String {
     }
 }
 
-fn remove_suffix<'x>(s: &'x str, suffix: &str) -> &'x str {
-    match s.strip_suffix(suffix) {
-        Some(s) => s,
-        None => s
-    }
-}
 
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
+    let mut debug = false;
 
-    loop {        
+    loop {
         print!("Command: ");
         let _flush = std::io::stdout().lock().flush();
         let mut line = String::new();
@@ -338,7 +376,7 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         let v: Vec<&str> = line.split(" ").collect();
         let base = v[0];
         // let arg1: &str = if v.len() > 1 { v[1] } else {""};
-        
+
         if base == "help" || base == "?" {
             if v.len() > 1 {
                 if v[1] == "mode" {
@@ -349,6 +387,11 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             else {
                 print_help();
             }
+            continue;
+        }
+        if base == "debug" {
+            debug = ! debug;
+            let _ = transmitter.send("debug".to_string());
             continue;
         }
         if base == "select" {
@@ -362,7 +405,7 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         if base == "mode" && v.len() > 1 {
             // println!("Attempting to change mode");
             match change_mode(v) {
-                Some(code) => { 
+                Some(code) => {
                     let _res = transmitter.send(code);
                 },
                 None => {}
@@ -402,8 +445,10 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         }
         println!("Sending raw command {}", line);
         let _send = transmitter.send(line);
-        println!("Sent user line");
-    } 
+        if debug {
+            println!("Sent user line");
+        }
+    }
 }
 
 
@@ -419,7 +464,7 @@ fn print_mode_help() {
 fn decode_fl(s: &str) -> String {
 
     let v: Vec<u8> = s.as_bytes().to_vec();
-    
+
     let mut urlbytes = ByteBuffer::new();
     let ampersand: [u8; 1] = [37]; // b"%"
     let mut i = 2;
@@ -431,7 +476,7 @@ fn decode_fl(s: &str) -> String {
     // now need to do equivalent of urllib.parse.unquote:
     let binary = urlencoding::decode_binary(urlbytes.as_bytes());
     let decoded = String::from_utf8_lossy(&binary);
-    return decoded.to_string(); 
+    return decoded.to_string();
 }
 
 
@@ -470,4 +515,14 @@ fn change_mode(vec: Vec<&str>) -> Option<String> {
     let m = INVERSE_MODE_SET_MAP.get(&mode).unwrap();
     println!("Trying to change to modestring {} ({})", mode, m.to_owned());
     return Some(m.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn my_test() {
+        println!("testing!");
+    }
+
 }
