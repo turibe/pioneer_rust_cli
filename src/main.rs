@@ -128,6 +128,13 @@ fn process_status_line(srec:String) -> String {
         None => {}
     }
 
+    if srec == "PWR0" {
+        return "Power is ON".to_owned();
+    }
+    if srec == "PWR1" {
+        return "Power is OFF".to_owned();
+    }
+
     if srec.starts_with("FN") {
         let is = match INPUT_MAP.get(&srec[2..]) {
             Some(s) => s.to_string(),
