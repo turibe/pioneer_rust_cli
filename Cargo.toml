@@ -1,0 +1,15 @@
+[package]
+name = "pioneer-telnet"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+telnet = "0.2.1"
+bytebuffer = "2.2.0"
+urlencoding = "2.1.3"
+phf = { version = "0.11.2", features = ["macros"] }
+# text_io = "0.1.12"
+lazy_static = "1.4.0"
