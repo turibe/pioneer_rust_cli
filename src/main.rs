@@ -1,12 +1,13 @@
 
 use bytebuffer::ByteBuffer;
-use other_maps::INPUT_MAP;
+use other_maps::DEFAULT_INPUT_MAP;
 
 mod other_maps;
-use crate::other_maps::{AIF_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
+use crate::other_maps::{InputMap, AIF_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
 
 use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
+use std::collections::HashMap;
 use std::io::Write;
 use std::thread;
 use std::time::Duration;
@@ -136,7 +137,7 @@ fn process_status_line(srec:String) -> String {
     }
 
     if srec.starts_with("FN") {
-        let is = match INPUT_MAP.get(&srec[2..]) {
+        let is = match DEFAULT_INPUT_MAP.get(&srec[2..]) {
             Some(s) => s.to_string(),
             None => format!("unknown ({})", srec)
         };
@@ -359,6 +360,19 @@ fn db_level(s: &str) -> String {
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
     let mut debug = false;
 
+    let mut input_map:HashMap<String, String>;
+
+    let mopt  = InputMap::read_from_file("/Users/uribe/git_tomas/pioneer_rust_cli/pioneer_avr_sources.json");
+    match mopt {
+        Ok(m) => { input_map = m; }
+        Err(_) => {
+            input_map = HashMap::new();
+            for x in &DEFAULT_INPUT_MAP {
+                input_map.insert(x.0.to_string(), x.1.to_string());
+            }
+         }
+    }
+
     loop {
         print!("Command: ");
         let _flush = std::io::stdout().lock().flush();
@@ -449,6 +463,12 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
                 continue;
             }
             Err(_) => {}
+        }
+        if base == "sources" {
+            for x in &input_map {
+                println!("{} ({})", x.1, x.0);
+            }
+            continue;
         }
         println!("Sending raw command {}", line);
         let _send = transmitter.send(line);
