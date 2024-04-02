@@ -1,9 +1,9 @@
 use phf::phf_map;
 use serde_json::Value;
-use std::fmt::Debug;
 use std::fs;
 use std::error::Error;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 
 pub static ERROR_MAP: phf::Map<&'static str, &'static str> = phf_map! {
@@ -201,3 +201,15 @@ pub static AIF_MAP: phf::Map<&'static str, &'static str> = phf_map! {
     "06" => "192kHz",
     "07" => "---" 
 };
+
+use lazy_static::lazy_static;
+
+lazy_static! {
+    pub(crate)
+    static ref INPUT_MAP:Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+}
+
+lazy_static! {
+    pub(crate)
+    static ref REVERSE_INPUT_MAP:Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+}

@@ -1,13 +1,13 @@
 
 use bytebuffer::ByteBuffer;
-use other_maps::DEFAULT_INPUT_MAP;
 
-mod other_maps;
+pub mod other_maps;
 use crate::other_maps::{InputMap, AIF_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
+use crate::other_maps::{DEFAULT_INPUT_MAP, INPUT_MAP, REVERSE_INPUT_MAP};
 
 use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
-use std::collections::HashMap;
+
 use std::io::Write;
 use std::thread;
 use std::time::Duration;
@@ -17,19 +17,15 @@ mod modes_display;
 
 use crate::modes_display::MODE_DISPLAY_MAP;
 
-// use text_io::read;
-
 mod modes_set;
 use modes_set::{get_modes_with_prefix, MODE_SET_MAP};
 use modes_set::INVERSE_MODE_SET_MAP;
-
-// use crate::modes_display;
 
 fn main() -> ! {
     let host = "192.168.86.32";
     println!("Connecting to AVR at address {}", host);
     let mut connection = Telnet::connect((host, 23), 256)
-            .expect("Couldn't connect to the hostr...");
+            .expect("Couldn't connect to the host...");
 
     let _res = connection.negotiate(&Action::Will, TelnetOption::Echo);
 
@@ -80,7 +76,7 @@ fn main() -> ! {
         // let event = connection.read_nonblocking().expect("Read error");
         // too slow:
         // let event = connection.read().expect("Read error");
-        let timeout:u32 = (1_000_000 * 1_000) / 20;
+        let timeout:u32 = (1_000_000 * 1_000) / 100;
         let event = connection.read_timeout(Duration::new(0,timeout)).expect("Read error");
 
         if let Event::Data(buffer) = event {
@@ -137,7 +133,7 @@ fn process_status_line(srec:String) -> String {
     }
 
     if srec.starts_with("FN") {
-        let is = match DEFAULT_INPUT_MAP.get(&srec[2..]) {
+        let is = match INPUT_MAP.lock().unwrap().get(&srec[2..]) {
             Some(s) => s.to_string(),
             None => format!("unknown ({})", srec)
         };
@@ -159,8 +155,24 @@ fn process_status_line(srec:String) -> String {
     }
 
     if srec.starts_with("ATE") {
-
+        let num = &srec[3..];
+        if "00" <= num && num <= "16" {
+            println!("Phase control: {} ms", num);
+        }
+        else if num == "97" {
+                println!("Phase control: AUTO");
+        }
+        else if num == "98" {
+            println!("Phase control: UP");
+        }
+        else if num == "99" {
+            println!("Phase control: DOWN");
+        }
+        else {
+            println!("Phase control: unknown ({})", srec);
+        };
     }
+
     // translate_mode is below
     if srec.starts_with("AST") {
         return decode_ast(&srec[3..]);
@@ -360,25 +372,29 @@ fn db_level(s: &str) -> String {
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
     let mut debug = false;
 
-    let mut input_map:HashMap<String, String>;
+    // let mut input_map:HashMap<String, String>;
 
     let path = "/Users/uribe/git_tomas/pioneer_rust_cli/pioneer_avr_sources.json";
 
     let mopt  = InputMap::read_from_file(path);
     
     match mopt {
-        Ok(m) => { input_map = m; }
+        Ok(m) =>  {
+            for x in &m {
+                INPUT_MAP.lock().unwrap().insert(x.0.to_string(), x.1.to_string());
+            }
+        }
         Err(e) => {
             println!("Got error reading {}: {}", path, e);
-            input_map = HashMap::new();
             for x in &DEFAULT_INPUT_MAP {
-                input_map.insert(x.0.to_string(), x.1.to_string());
+                INPUT_MAP.lock().unwrap().insert(x.0.to_string(), x.1.to_string());
             }
-         }
+        }
     }
-    let mut reverse_input_map = HashMap::new();
-    for x in input_map {
-        reverse_input_map.insert(x.1.to_ascii_lowercase(), x.0+"FN");
+    
+    // let mut reverse_input_map = HashMap::new();
+    for x in INPUT_MAP.lock().unwrap().iter() {
+        REVERSE_INPUT_MAP.lock().unwrap().insert(x.1.to_ascii_lowercase(), x.0.to_owned()+"FN");
     }
 
     loop {
@@ -388,13 +404,15 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         let _r = std::io::stdin().read_line(&mut line); // including '\n'
         // let mut line: String = read!("{}\n");
         line = line.trim().to_string();
-        println!("Got user line '{}'", line);
+        if debug {
+            println!("Got user line '{}'", line);
+        }
         if line == "" { continue; }
         if line == "quit" || line == "exit" {
             std::process::exit(0);
         }
         if line == "status" {
-            for c in ["?P", "?BA", "?TR", "?TO", "?L", "?AST"] {
+            for c in ["?P", "?F", "?BA", "?TR", "?TO", "?L", "?AST"] {
                 let _ = transmitter.send(c.to_owned());
             }
             // # send(tn, "?VTC") # not very interesting if always AUTO
@@ -448,7 +466,7 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             },
             None => {}
         }
-        match reverse_input_map.get(&line) {
+        match REVERSE_INPUT_MAP.lock().unwrap().get(&line) {
             Some(s) => {
                 let cmd = s.to_string();
                 println!("Sending source change command {}", cmd);
@@ -480,7 +498,7 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             Err(_) => {}
         }
         if line == "sources" || line == "inputs" {
-            for x in &reverse_input_map {
+            for x in REVERSE_INPUT_MAP.lock().unwrap().iter() {
                 println!("{} ({})", x.0, x.1);
             }
             continue;
