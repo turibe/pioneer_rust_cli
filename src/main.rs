@@ -362,15 +362,23 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
     let mut input_map:HashMap<String, String>;
 
-    let mopt  = InputMap::read_from_file("/Users/uribe/git_tomas/pioneer_rust_cli/pioneer_avr_sources.json");
+    let path = "/Users/uribe/git_tomas/pioneer_rust_cli/pioneer_avr_sources.json";
+
+    let mopt  = InputMap::read_from_file(path);
+    
     match mopt {
         Ok(m) => { input_map = m; }
-        Err(_) => {
+        Err(e) => {
+            println!("Got error reading {}: {}", path, e);
             input_map = HashMap::new();
             for x in &DEFAULT_INPUT_MAP {
                 input_map.insert(x.0.to_string(), x.1.to_string());
             }
          }
+    }
+    let mut reverse_input_map = HashMap::new();
+    for x in input_map {
+        reverse_input_map.insert(x.1.to_ascii_lowercase(), x.0+"FN");
     }
 
     loop {
@@ -380,17 +388,15 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         let _r = std::io::stdin().read_line(&mut line); // including '\n'
         // let mut line: String = read!("{}\n");
         line = line.trim().to_string();
-        // println!("Got user line {}", line);
+        println!("Got user line '{}'", line);
         if line == "" { continue; }
         if line == "quit" || line == "exit" {
             std::process::exit(0);
         }
         if line == "status" {
-            let _ = transmitter.send("?BA".to_owned());
-            let _ = transmitter.send("?TR".to_owned());
-            let _ = transmitter.send("?TO".to_owned());
-            let _ = transmitter.send("?L".to_owned());
-            let _ = transmitter.send("?AST".to_owned());
+            for c in ["?P", "?BA", "?TR", "?TO", "?L", "?AST"] {
+                let _ = transmitter.send(c.to_owned());
+            }
             // # send(tn, "?VTC") # not very interesting if always AUTO
             continue;
         }
@@ -442,6 +448,15 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             },
             None => {}
         }
+        match reverse_input_map.get(&line) {
+            Some(s) => {
+                let cmd = s.to_string();
+                println!("Sending source change command {}", cmd);
+                let _ = transmitter.send(cmd);
+                continue;
+            },
+            None => {}
+        }
         let numoption = line.parse::<i32>();
         match numoption {
             Ok(mut i) => {
@@ -464,9 +479,9 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             }
             Err(_) => {}
         }
-        if base == "sources" {
-            for x in &input_map {
-                println!("{} ({})", x.1, x.0);
+        if line == "sources" || line == "inputs" {
+            for x in &reverse_input_map {
+                println!("{} ({})", x.0, x.1);
             }
             continue;
         }

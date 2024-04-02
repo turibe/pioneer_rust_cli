@@ -1,4 +1,6 @@
 use phf::phf_map;
+use serde_json::Value;
+use std::fmt::Debug;
 use std::fs;
 use std::error::Error;
 use std::collections::HashMap;
@@ -44,7 +46,14 @@ impl InputMap {
         }
         let mut result_map: HashMap<String, String> = HashMap::new();
         for x in m.iter() {
-            result_map.insert(x.0.to_string(), x.1.to_string());
+            match x.1.as_str() {
+                Some(s) => {
+                    result_map.insert(x.0.to_string(), s.to_string());
+                }
+                None => {
+                    println!("Bad value in JSON map: {}", x.1);
+                }
+            }            
         }
         return Ok(result_map);
     }
@@ -115,32 +124,6 @@ pub static COMMAND_MAP: phf::Map<&'static str, &'static str> = phf_map! {
     "mode" => "?S",
 
     "loud" => "9ATW", // cyclic
-
-    // switch inputs:
-    "bd" => "25FN",
-    "dvd" => "04FN",
-    "appleaudio" => "05FN",
-    "amazontv" => "06FN",
-    // "sat" => "06FN",
-    "video" => "10FN",
-    "hdmi1" => "19FN",
-    "hdmi2" => "20FN",
-    "hdmi3" => "21FN",
-    "hdmi4" => "22FN",
-    "hdmi5" => "23FN",
-    "hdmi6" => "24FN",
-    "apple" => "25FN",
-    "appletv" => "25FN",
-    "hdmi7" => "34FN",
-    "net" => "26FN", // cyclic
-    "tv" => "01FN",
-    "iradio" => "38FN",
-    "dvr" => "15FN",
-    "radio" => "02FN",
-    "tuner" => "02FN",
-    "phono" => "00FN", // invalid command
-    "hdmi" => "31FN", // cyclic
-    "pandora" => "41FN",
 
     // TODO: could have a pandora mode, radio mode, etc.
     // Pandora ones:
