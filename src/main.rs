@@ -71,11 +71,6 @@ fn main() -> ! {
                 // println!("Wrote bytebuffer");
             }
         }
-        // println!("try_recv done");
-        // busy wait:
-        // let event = connection.read_nonblocking().expect("Read error");
-        // too slow:
-        // let event = connection.read().expect("Read error");
         let timeout:u32 = (1_000_000 * 1_000) / 100;
         let event = connection.read_timeout(Duration::new(0,timeout)).expect("Read error");
 
@@ -374,9 +369,10 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
 
     // let mut input_map:HashMap<String, String>;
 
-    let path = "/Users/uribe/git_tomas/pioneer_rust_cli/pioneer_avr_sources.json";
+    
+    let path = shellexpand::tilde("~/pioneer_avr_sources.json");
 
-    let mopt  = InputMap::read_from_file(path);
+    let mopt  = InputMap::read_from_file(&path.clone().into_owned());
     
     match mopt {
         Ok(m) =>  {
