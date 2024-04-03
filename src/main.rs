@@ -2,7 +2,7 @@
 use bytebuffer::ByteBuffer;
 
 pub mod other_maps;
-use crate::other_maps::{InputMap, AIF_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
+use crate::other_maps::{InputMap, AIF_MAP, CHANNEL_DECODE_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
 use crate::other_maps::{DEFAULT_INPUT_MAP, INPUT_MAP, REVERSE_INPUT_MAP};
 
 use telnet::{Event, Telnet};
@@ -205,7 +205,25 @@ fn process_status_line(srec:String) -> String {
 fn decode_ast(s: &str) -> String {
     let s1 = format!("Audio input signal: {}", decode_ais(&s[0..2]));
     let s2 = format!("Audio input frequency: {}", decode_aif(&s[2..4]));
-    let s3 = s1 + "\n" + &s2;
+    let binding = "-".to_string() + s;
+    let sc:Vec<char> = binding.chars().collect();
+    let mut s3 = s1 + "\n" + &s2;
+    println!("raw: {}", s);
+    s3 += "\nInput Channels: ";
+    for i in &CHANNEL_DECODE_MAP {
+        let idx:usize = (*(i.0)).try_into().unwrap();
+        if idx < sc.len() && sc[idx] == '1' {
+            s3 += &((i.1).to_string() + ", ");
+        }
+    }
+    s3 += "\nOutput Channels: ";
+    for i in &CHANNEL_DECODE_MAP {
+        let idx:usize = (21i8 + i.0).try_into().unwrap();
+        if idx < sc.len() &&  sc[idx] == '1' {
+            s3 += &((i.1).to_string() + ", ");
+        }
+    }
+
     return s3;
 }
 

@@ -213,3 +213,22 @@ lazy_static! {
     pub(crate)
     static ref REVERSE_INPUT_MAP:Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 }
+
+pub static CHANNEL_DECODE_MAP: phf::Map<i8, &'static str> = phf_map! {
+    5i8 => "Left",
+    6i8 => "Center",
+    7i8 => "Right",
+    8i8 => "SL",
+    9i8 => "SR",
+    10i8 => "SBL",
+    11i8 => "S",
+    12i8 => "SBR",
+    13i8 => "LFE",
+    14i8 => "FHL",
+    15i8 => "FHR",
+    16i8 => "FWL",
+    17i8 => "FWR",
+    18i8 => "XL",
+    19i8 => "XC",
+    20i8 => "XR"
+};
