@@ -1,8 +1,9 @@
 use phf::phf_map;
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, File};
 use std::error::Error;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Mutex;
 
 
@@ -40,7 +41,7 @@ impl InputMap {
                 return Err("error".into());
             }
         };
-        println!("Read map from {}", path);
+        println!("Read input sources map from {}", path);
         for x in m.iter() {
             println!("{} - {}", x.0, x.1)
         }
@@ -57,6 +58,30 @@ impl InputMap {
         }
         return Ok(result_map);
     }
+
+
+    pub fn save_input_map(filename: &str) -> bool {
+        let file =  match File::create(filename) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("Error creating sources map file {}: {}", filename, e);
+                return false;
+            }
+        };
+        // let s = &INPUT_MAP.lock().unwrap().deref();
+        let res = serde_json::to_writer(file, &INPUT_MAP.lock().unwrap().deref());
+        match res {
+            Ok(_) => {
+                println!("Wrote input sources map to {}", filename);
+                return true;
+            }
+            Err(e) => {
+                println!("Error writing input sources map to {}: {}", filename, e);
+                return false;
+            }
+        };
+    }
+
 }
 // default set:
 
