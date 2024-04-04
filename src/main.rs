@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 use std::io::Write;
 use std::thread;
 use std::time::Duration;
-use std::sync::mpsc::{self};
+use std::sync::mpsc::{self, TryRecvError};
 
 mod modes_display;
 
@@ -53,9 +53,12 @@ fn main() -> ! {
     loop { // receiving from the user channel
 
         match receiver.try_recv() {
-            Err(_e) => {
-                // println!("Receive error {}", _e);
+            Err(TryRecvError::Disconnected) => {
+                println!("Receive error: disconnected.");
             },
+            Err(TryRecvError::Empty) => {
+                thread::sleep(Duration::new(0, 1000));
+            }
             Ok(msg) => {
                 if debug {
                     println!("Got from user side: {}", msg);
@@ -98,10 +101,12 @@ fn main() -> ! {
             let f = leftover.to_owned() + v.first().expect("should never happen");
             if leftover.len() > 0 {
                 v.remove(0);
+                let mut i = 0;
                 for seg in f.split("\r\n") {
-                    v.insert(0, seg);
+                    v.insert(i, seg);
+                    i += 1;
                 }
-                println!("Adding leftover {}, got {}\n", leftover, f);
+                if debug { println!("Adding leftover {}, got {}\n", leftover, f); }
                 if leftover.ends_with('\r') {
                     println!("!Weird leftover!");
                 }
@@ -126,14 +131,18 @@ fn main() -> ! {
 
 fn learn_input_from(s: &str) {
     let id = &s[0..2];
-    let name = &s[3..];
+    let name = &s[3..].trim();
     match INPUT_MAP.lock().unwrap().get(id) {
         Some(s) => if s != name {
             println!("Updating source {} to {}", id, name);
         },
-        None => { }
+        None => {
+            println!("Adding source {} ({})", name, id);
+        }            
     }
-    INPUT_MAP.lock().unwrap().insert(id.to_owned(), name.to_owned());
+    INPUT_MAP.lock().unwrap().insert(id.to_owned(), name.to_string());
+    // TODO: don't repeat this
+    REVERSE_INPUT_MAP.lock().unwrap().insert(name.to_ascii_lowercase(), id.to_owned()+"FN");
 }
 
 // Processes a status line (string) received from the AVR, returning a human-readable string
@@ -585,9 +594,12 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             Err(_) => {}
         }
         if line == "sources" || line == "inputs" {
-            for x in REVERSE_INPUT_MAP.lock().unwrap().iter() {
-                println!("{} ({})", x.0, x.1);
-            }
+            let m = REVERSE_INPUT_MAP.lock().unwrap();
+            let mut vect:Vec<(&String, &String)> = m.iter().collect();
+            vect.sort();
+            for x in vect {
+                println!("'{}' ({})", x.0, x.1);
+            };
             continue;
         }
         println!("Sending raw command {}", line);
