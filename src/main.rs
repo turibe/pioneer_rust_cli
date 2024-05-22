@@ -80,7 +80,7 @@ fn main() -> ! {
                 // println!("Wrote bytebuffer");
             }
         }
-        // FIXME: some lines can be split between one event and the next.
+        // FIXED: some lines can be split between one event and the next.
         let timeout:u32 = (1_000_000 * 1_000) / 80;
         let event = connection.read_timeout(Duration::new(0,timeout)).expect("Read error");
 
@@ -277,15 +277,14 @@ lazy_static! {
     static ref CONFIG_FILE_PATH: Cow<'static, str> = shellexpand::tilde("~/pioneer_avr_sources.json");
 }
 
-
+/*** Get input from the user */
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
     let mut debug = false;
-
-    // let mut input_map:HashMap<String, String>;
 
     let filename:&str = &CONFIG_FILE_PATH;
     let path = shellexpand::tilde(filename);
 
+    // Read custom input config map, if it exists:
     let mopt  = InputMap::read_from_file(&path.clone().into_owned());
     
     match mopt {
@@ -311,7 +310,17 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         print!("Command: ");
         let _flush = std::io::stdout().lock().flush();
         let mut line = String::new();
-        let _r = std::io::stdin().read_line(&mut line); // including '\n'
+        let r = std::io::stdin().read_line(&mut line); // including '\n'
+        match r {
+            Ok(s) => {
+                // println!("OK: {}", s);
+                if s==0 {
+                    println!("Bye!");
+                    std::process::exit(0)
+                }
+            },
+            Err(_) => () // println!("Error {}", e)
+        }
         // let mut line: String = read!("{}\n");
         let trimmed_line = line.trim().to_string();
         line = trimmed_line.to_lowercase();
@@ -387,7 +396,9 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         match COMMAND_MAP.get(&line) {
             Some(s) => {
                 let cmd = s.to_string();
-                println!("Sending command {}", cmd);
+                if debug {
+                    println!("Sending command {}", cmd);
+                }
                 let _res = transmitter.send(cmd);
                 continue;
             },

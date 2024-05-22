@@ -25,15 +25,13 @@ pub fn decode_fl(s: &str) -> String {
     return decoded.to_string();
 }
 
-
-
 pub fn decode_ast(s: &str) -> String {
     let s1 = format!("Audio input signal: {}", decode_ais(&s[0..2]));
     let s2 = format!("Audio input frequency: {}", decode_aif(&s[2..4]));
     let binding = "-".to_string() + s;
     let sc:Vec<char> = binding.chars().collect();
     let mut s3 = s1 + "\n" + &s2;
-    println!("raw: {}", s);
+    // println!("raw: {}", s);
     s3 += "\nInput Channels: ";
     for i in &CHANNEL_DECODE_MAP {
         let idx:usize = (*(i.0)).try_into().unwrap();
@@ -126,7 +124,6 @@ pub fn decode_vtc(s: &str) -> String {
         None => "unknown VTC resolution".to_owned()
     }
 }
-
 
 pub fn decode_tone(s: &str) -> Option<String> {
     if s.starts_with("TR") {
