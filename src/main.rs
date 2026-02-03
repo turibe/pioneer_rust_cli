@@ -17,6 +17,7 @@ use std::io::Write;
 use std::thread;
 use std::time::Duration;
 use std::sync::mpsc::{self, TryRecvError};
+use std::env;
 
 mod modes_display;
 
@@ -27,7 +28,13 @@ use modes_set::{get_modes_with_prefix, MODE_SET_MAP};
 use modes_set::INVERSE_MODE_SET_MAP;
 
 fn main() -> ! {
-    let host = "192.168.86.32";
+    let args: Vec<String> = env::args().collect();
+    // let host = "192.168.1.69";
+    if args.len() < 2 {
+        println!("Please specify an AVR address");
+        std::process::exit(1)
+    }
+    let host = args[1].clone();
     println!("Connecting to AVR at address {}", host);
     let mut connection = Telnet::connect((host, 23), 256)
             .expect("Couldn't connect to the host...");
