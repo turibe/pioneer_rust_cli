@@ -2,8 +2,11 @@
 use bytebuffer::ByteBuffer;
 
 pub mod other_maps;
-use crate::other_maps::{InputMap, AIF_MAP, CHANNEL_DECODE_MAP, COMMAND_MAP, ERROR_MAP, SCREEN_TYPE_MAP, SOURCE_MAP, TYPE_MAP, VTC_RESOLUTION_MAP};
+use crate::other_maps::{InputMap, COMMAND_MAP, ERROR_MAP};
 use crate::other_maps::{DEFAULT_INPUT_MAP, INPUT_MAP, REVERSE_INPUT_MAP};
+
+pub mod decoders;
+use crate::decoders::{decode_ast, decode_fl, decode_geh, decode_vtc, decode_tone};
 
 use telnet::{Event, Telnet};
 use telnet::{Action, TelnetOption};
@@ -13,7 +16,8 @@ use lazy_static::lazy_static;
 use std::io::Write;
 use std::thread;
 use std::time::Duration;
-use std::sync::mpsc::{self};
+use std::sync::mpsc::{self, TryRecvError};
+use std::env;
 
 mod modes_display;
 
@@ -24,7 +28,13 @@ use modes_set::{get_modes_with_prefix, MODE_SET_MAP};
 use modes_set::INVERSE_MODE_SET_MAP;
 
 fn main() -> ! {
-    let host = "192.168.86.32";
+    let args: Vec<String> = env::args().collect();
+    // let host = "192.168.1.69";
+    if args.len() < 2 {
+        println!("Please specify an AVR address");
+        std::process::exit(1)
+    }
+    let host = args[1].clone();
     println!("Connecting to AVR at address {}", host);
     let mut connection = Telnet::connect((host, 23), 256)
             .expect("Couldn't connect to the host...");
@@ -53,9 +63,12 @@ fn main() -> ! {
     loop { // receiving from the user channel
 
         match receiver.try_recv() {
-            Err(_e) => {
-                // println!("Receive error {}", _e);
+            Err(TryRecvError::Disconnected) => {
+                println!("Receive error: disconnected.");
             },
+            Err(TryRecvError::Empty) => {
+                thread::sleep(Duration::new(0, 1000));
+            }
             Ok(msg) => {
                 if debug {
                     println!("Got from user side: {}", msg);
@@ -74,7 +87,7 @@ fn main() -> ! {
                 // println!("Wrote bytebuffer");
             }
         }
-        // FIXME: some lines can be split between one event and the next.
+        // FIXED: some lines can be split between one event and the next.
         let timeout:u32 = (1_000_000 * 1_000) / 80;
         let event = connection.read_timeout(Duration::new(0,timeout)).expect("Read error");
 
@@ -98,10 +111,12 @@ fn main() -> ! {
             let f = leftover.to_owned() + v.first().expect("should never happen");
             if leftover.len() > 0 {
                 v.remove(0);
+                let mut i = 0;
                 for seg in f.split("\r\n") {
-                    v.insert(0, seg);
+                    v.insert(i, seg);
+                    i += 1;
                 }
-                println!("Adding leftover {}, got {}\n", leftover, f);
+                if debug { println!("Adding leftover {}, got {}\n", leftover, f); }
                 if leftover.ends_with('\r') {
                     println!("!Weird leftover!");
                 }
@@ -126,14 +141,18 @@ fn main() -> ! {
 
 fn learn_input_from(s: &str) {
     let id = &s[0..2];
-    let name = &s[3..];
+    let name = &s[3..].trim();
     match INPUT_MAP.lock().unwrap().get(id) {
         Some(s) => if s != name {
             println!("Updating source {} to {}", id, name);
         },
-        None => { }
+        None => {
+            println!("Adding source {} ({})", name, id);
+        }            
     }
-    INPUT_MAP.lock().unwrap().insert(id.to_owned(), name.to_owned());
+    INPUT_MAP.lock().unwrap().insert(id.to_owned(), name.to_string());
+    // TODO: don't repeat this
+    REVERSE_INPUT_MAP.lock().unwrap().insert(name.to_ascii_lowercase(), id.to_owned()+"FN");
 }
 
 // Processes a status line (string) received from the AVR, returning a human-readable string
@@ -250,203 +269,29 @@ fn process_status_line(srec:String) -> String {
     if srec.starts_with("VOL") {
         return "".to_string();
     }
+    if srec == "MUT0" {
+        return "Mute is ON".to_string();
+    }
+    if srec == "MUT1" {
+        return "Mute is OFF".to_string();
+    }
     return format!("Unknown status line '{}'", srec);
 }
 
-
-fn decode_ast(s: &str) -> String {
-    let s1 = format!("Audio input signal: {}", decode_ais(&s[0..2]));
-    let s2 = format!("Audio input frequency: {}", decode_aif(&s[2..4]));
-    let binding = "-".to_string() + s;
-    let sc:Vec<char> = binding.chars().collect();
-    let mut s3 = s1 + "\n" + &s2;
-    println!("raw: {}", s);
-    s3 += "\nInput Channels: ";
-    for i in &CHANNEL_DECODE_MAP {
-        let idx:usize = (*(i.0)).try_into().unwrap();
-        if idx < sc.len() && sc[idx] == '1' {
-            s3 += &((i.1).to_string() + ", ");
-        }
-    }
-    s3 += "\nOutput Channels: ";
-    for i in &CHANNEL_DECODE_MAP {
-        let idx:usize = (21i8 + i.0).try_into().unwrap();
-        if idx < sc.len() &&  sc[idx] == '1' {
-            s3 += &((i.1).to_string() + ", ");
-        }
-    }
-
-    return s3;
-}
-
-fn decode_ais(s:&str) -> &str {
-    if "00" <= s && s <= "02" {
-        return "ANALOG";
-    }
-    if s=="03" || s=="04" {
-        return "PCM";
-    }
-    if s=="05" {
-        return "DOLBY DIGITAL";
-    }
-    if s=="06" {
-        return "DTS";
-    }
-    if s=="07" {
-        return "DTS-ES Matrix";
-    }
-    if s=="08" {
-        return "DTS-ES Discrete";
-    }
-    if s=="09" {
-        return "DTS 96/24";
-    }
-    if s=="10" {
-        return "DTS 96/24 ES Matrix";
-    }
-    if s=="11" {
-        return "DTS 96/24 ES Discrete";
-    }
-    if s=="12" {
-        return "MPEG-2 AAC";
-    }
-    if s=="13" {
-        return "WMA9 Pro";
-    }
-    if s=="14" {
-        return "DSD->PCM";
-    }
-    if s=="15" {
-        return "HDMI THROUGH";
-    }
-    if s=="16" {
-        return "DOLBY DIGITAL PLUS";
-    }
-    if s=="17" {
-        return "DOLBY TrueHD";
-    }
-    if s=="18" {
-        return "DTS EXPRESS";
-    }
-    if s=="19" {
-        return "DTS-HD Master Audio";
-    }
-    if "20" <= s && s <= "26" {
-        return "DTS-HD High Resolution";
-    }
-    if s=="27" {
-        return "DTS-HD Master Audio";
-    }
-    return "unknown ais";
-}
-
-fn decode_aif(s:&str) -> &str {
-    match AIF_MAP.get(s) {
-        Some(v) => return v,
-        None => return "unknown"
-    }
-}
-
-fn decode_vtc(s: &str) -> String {
-    match VTC_RESOLUTION_MAP.get(s) {
-        Some(v) => v.to_string(),
-        None => "unknown VTC resolution".to_owned()
-    }
-}
-
-
-fn decode_tone(s: &str) -> Option<String> {
-    if s.starts_with("TR") {
-        let dbs = db_level(s);
-        let fs = format!("treble at {}", dbs);
-        return Some(fs);
-    }
-    if s.starts_with("BA") {
-        let dbs = db_level(s);
-        let fs = format!("bass at {}", dbs);
-        return Some(fs);
-    }
-    if s == "TO0" {
-        return Some("tone off".to_string());
-    }
-    if s == "TO1" {
-        return Some("tone on".to_string());
-    }
-    return None;
-}
-
-fn decode_geh(s: &str) -> Option<String> {
-    if s.starts_with("GDH") {
-        let sbytes = &s.to_string()[3..];
-        let toslice = sbytes.to_string();
-        let fs = format!("items {} to {} of total {} ",
-             &toslice[0..5], &toslice[5..10], &toslice[10..]);
-        return Some(fs);
-    }
-    if s.starts_with("GBH") {
-        let toslice = s.to_string();
-        let fs = format!("max list number: {}", &toslice[2..]);
-        return Some(fs);
-    }
-    if s.starts_with("GCH") {
-        let key = &s.to_string()[3..5];
-        let val = match SCREEN_TYPE_MAP.get(key) {
-            Some(sv) => sv,
-            None => "unknown"
-        };
-        let fs = format!("{} - {}", val, s);
-        return Some(fs);
-    }
-    if s.starts_with("GHH") {
-        let key = &s.to_string()[2..];
-        let val = match SOURCE_MAP.get(key) {
-            Some(sv) => sv,
-            None => "unknown"
-        };
-        let fs = format!("source: {}", val);
-        return Some(fs);
-    }
-    if ! s.starts_with("GEH") { return None; }
-    let suf = &s[3..];
-    let key = &suf[3..5];
-    let binding = format!("unknown ({})", key).to_string();
-    let typeval: &str = match TYPE_MAP.get(key) {
-        Some(sv) => sv,
-        None => &binding
-    };
-    let info = &suf[5..];
-    return Some(format!("{} : {}", typeval, info));
-}
-
-
-fn db_level(s: &str) -> String {
-    let stripped= &s.to_string()[2..]; // just need to cut first two
-    let my_int_option = stripped.parse::<i32>();
-    match my_int_option {
-        Ok(my_int) => {
-            let db = 6 - my_int;
-            return format!("{mydb}dB", mydb=db);
-        }
-        Err(_) => {
-            return format!("Error parsing DB level, string was {}", s);
-        }
-    }
-}
 
 lazy_static! {
     pub(crate)
     static ref CONFIG_FILE_PATH: Cow<'static, str> = shellexpand::tilde("~/pioneer_avr_sources.json");
 }
 
-
+/*** Get input from the user */
 fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
     let mut debug = false;
-
-    // let mut input_map:HashMap<String, String>;
 
     let filename:&str = &CONFIG_FILE_PATH;
     let path = shellexpand::tilde(filename);
 
+    // Read custom input config map, if it exists:
     let mopt  = InputMap::read_from_file(&path.clone().into_owned());
     
     match mopt {
@@ -472,9 +317,20 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         print!("Command: ");
         let _flush = std::io::stdout().lock().flush();
         let mut line = String::new();
-        let _r = std::io::stdin().read_line(&mut line); // including '\n'
+        let r = std::io::stdin().read_line(&mut line); // including '\n'
+        match r {
+            Ok(s) => {
+                // println!("OK: {}", s);
+                if s==0 {
+                    println!("Bye!");
+                    std::process::exit(0)
+                }
+            },
+            Err(_) => () // println!("Error {}", e)
+        }
         // let mut line: String = read!("{}\n");
-        line = line.trim().to_string().to_lowercase();
+        let trimmed_line = line.trim().to_string();
+        line = trimmed_line.to_lowercase();
         if debug {
             println!("Got user line '{}'", line);
         }
@@ -547,7 +403,9 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
         match COMMAND_MAP.get(&line) {
             Some(s) => {
                 let cmd = s.to_string();
-                println!("Sending command {}", cmd);
+                if debug {
+                    println!("Sending command {}", cmd);
+                }
                 let _res = transmitter.send(cmd);
                 continue;
             },
@@ -585,13 +443,16 @@ fn user_input_loop(transmitter: std::sync::mpsc::Sender<String>) -> bool {
             Err(_) => {}
         }
         if line == "sources" || line == "inputs" {
-            for x in REVERSE_INPUT_MAP.lock().unwrap().iter() {
-                println!("{} ({})", x.0, x.1);
-            }
+            let m = REVERSE_INPUT_MAP.lock().unwrap();
+            let mut vect:Vec<(&String, &String)> = m.iter().collect();
+            vect.sort();
+            for x in vect {
+                println!("'{}' ({})", x.0, x.1);
+            };
             continue;
         }
-        println!("Sending raw command {}", line);
-        let _send = transmitter.send(line);
+        println!("Sending raw command {}", trimmed_line);
+        let _send = transmitter.send(trimmed_line);
         if debug {
             println!("Sent user line");
         }
@@ -606,25 +467,6 @@ fn print_mode_help() {
     };
 }
 
-
-// TODO: add unit tests.
-fn decode_fl(s: &str) -> String {
-
-    let v: Vec<u8> = s.as_bytes().to_vec();
-
-    let mut urlbytes = ByteBuffer::new();
-    let ampersand: [u8; 1] = [37]; // b"%"
-    let mut i = 2;
-    while i < v.len() {
-          urlbytes.write_bytes(&ampersand);
-          urlbytes.write_bytes(&[v[i], v[i+1]]);
-          i += 2;
-    }
-    // now need to do equivalent of urllib.parse.unquote:
-    let binary = urlencoding::decode_binary(urlbytes.as_bytes());
-    let decoded = String::from_utf8_lossy(&binary);
-    return decoded.to_string();
-}
 
 
 fn print_help() {
